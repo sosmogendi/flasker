@@ -1,0 +1,11 @@
+h2 {
+    color:blue;
+    font-size: 30px;
+}
+body {
+    background-color:whitesmoke;
+}
+#img-small {
+    width: 150px;
+    height: auto;
+}

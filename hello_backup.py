@@ -1,18 +1,16 @@
 from flask import Flask, render_template, flash, request, redirect, url_for
+from flask_wtf import FlaskForm
+from wtforms import StringField, SubmitField, PasswordField,BooleanField, ValidationError
+from wtforms.validators import DataRequired, EqualTo, Length
 from flask_sqlalchemy import SQLAlchemy
-from forms import LoginForm, PostForm, PasswordForm, NewUser, SearchForm
 from datetime import datetime, timezone, date
 from flask_migrate import Migrate
 from werkzeug.security import generate_password_hash, check_password_hash
+from wtforms.widgets import TextArea
 from flask_login import UserMixin, login_user, LoginManager, login_required, logout_user, current_user
-from flask_ckeditor import CKEditor
-import os
-from werkzeug.utils import secure_filename
 
 # Create flask instance
 app = Flask(__name__)
-# Add CK editor
-ckeditor = CKEditor(app)
 # Old sqlite database
 #app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
 
@@ -37,29 +35,6 @@ def load_user(user_id):
     return Users.query.get(int(user_id))
 
         ################
-
-# pass stuff to Navbar
-@app.context_processor
-def base():
-    form = SearchForm()
-    return dict(form=form)
-
-# Create a search function
-@app.route('/search', methods=["POST"])
-def search():
-    form = SearchForm()
-    posts = Posts.query
-    if form.validate_on_submit():
-        # Grab data from submitted data
-        post.searched = form.searched.data
-
-        posts = posts.filter(Posts.content.like('%' + post.searched + '%'))
-        posts = posts.order_by(Posts.title).all()
-
-        return render_template("search.html",
-                               form=form,
-                               searched=post.searched,
-                               posts=posts)
 
 # Create Login Page
 @app.route('/login', methods=["GET", "POST"])
@@ -88,25 +63,61 @@ def logout():
     flash("You have successfully logged out")
     return redirect(url_for('login'))
 
-
+# Create LoginForm
+class LoginForm(FlaskForm):
+    username = StringField("Username", validators=[DataRequired()])    
+    password = PasswordField("Password", validators=[DataRequired()])
+    submit = SubmitField("Submit")
 
 # Create Dashboard
 @app.route('/dashboard', methods=["GET", "POST"])
 @login_required
 def dashboard():
-    post = None
-    return render_template("dashboard.html", post=post)
+    return render_template("dashboard.html")
 
-# Create admin page
-@app.route('/admin')
-@login_required
-def admin():
-    id = current_user.id
-    if id == 14:
-        return render_template("admin.html")
-    else:
-        flash("You have to be an admin to access this page!")
-        return redirect(url_for('dashboard'))
+# create model
+class Users(db.Model, UserMixin):
+    id = db.Column(db.Integer, primary_key = True)
+    username = db.Column(db.String(20), nullable=False, unique=True)
+    name = db.Column(db.String(200), nullable= False)
+    email = db.Column(db.String(120), nullable = False, unique = True)
+    residence = db.Column(db.String(40))
+    date_added = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    # Password
+    password_hash = db.Column(db.String(128))
+
+    @property
+    def password(self):
+        raise AttributeError('Password is not readable')
+    
+    @password.setter
+    def password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def verify_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    # Create a string
+    def __repr__(self):
+        return '<Name %r>' % self.name
+    
+
+# Create a Blog post model
+class Posts(db.Model):
+    id=db.Column(db.Integer, primary_key=True)
+    title=db.Column(db.String(255))
+    content=db.Column(db.Text)
+    author=db.Column(db.String(60))
+    date_posted=db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    slug=db.Column(db.String(255))
+
+# Create Posts Form
+class PostForm(FlaskForm):
+    title=StringField("Title", validators=[DataRequired()])
+    content=StringField("Content", validators=[DataRequired()], widget=TextArea())
+    author=StringField("Author", validators=[DataRequired()])
+    slug=StringField("Appropriate Slug")
+    submit=SubmitField("Submit")
 
 # Post page
 @app.route('/add-post', methods=['GET', 'POST'])
@@ -116,9 +127,9 @@ def add_post():
     current_date = date.today()
 
     if form.validate_on_submit():
-        poster = current_user.id
-        post = Posts(title=form.title.data, content=form.content.data, author_id=poster, slug=form.slug.data)
-                 
+        post = Posts(title=form.title.data, content=form.content.data, author=form.author.data, slug=form.slug.data)
+        
+        
         #Add post to database
         db.session.add(post)
         db.session.commit()
@@ -126,8 +137,9 @@ def add_post():
         # Clear the form after successful submission
         form.title.data = ''
         form.content.data = ''
-        #form.author.data = ''
+        form.author.data = ''
         form.slug.data = ''
+
 
         flash("Post added successfully!")
 
@@ -144,12 +156,11 @@ def post(id):
 @app.route('/posts/edit/<int:id>', methods=['GET', 'POST'])
 @login_required
 def edit_post(id):
-    current_date = date.today()
     post=Posts.query.get_or_404(id)
     form = PostForm()
     if form.validate_on_submit():
         post.title = form.title.data
-        #post.author = form.author.data
+        post.author = form.author.data
         post.slug = form.slug.data
         post.content = form.content.data
 
@@ -158,47 +169,33 @@ def edit_post(id):
         db.session.commit()
         flash("Post updated successfully")
         return redirect(url_for('post', id=post.id))
+    form.title.data = post.title
+    form.author.data = post.author
+    form.content.data = post.content
+    form.slug.data = post.slug
+    return render_template("edit_post.html", form=form, post=post)
 
-    if current_user.id == post.author_id:
-        form.title.data = post.title
-        #form.author.data = post.author
-        form.content.data = post.content
-        form.slug.data = post.slug
-        return render_template("edit_post.html", form=form, post=post)
-    else:
-        flash("You are not authorized to edit this post")
-        posts = Posts.query.order_by(Posts.date_posted)
-        return render_template("posts.html", current_date=current_date, posts=posts)
-    
 @app.route('/posts/delete/<int:id>')
 @login_required
 def delete_post(id):
     post_to_delete = Posts.query.get_or_404(id)
-    id = current_user.id
-    if id == post_to_delete.author.id:
 
-        try:
-            db.session.delete(post_to_delete)
-            db.session.commit()
-            #Return a message
-            flash("Post deleted successfully!")
-        
-        #Grab all the posts from the database
-            posts =  Posts.query.order_by(Posts.date_posted)
-            return render_template("posts.html",
-                                posts = posts)
-        except:
-            #Return error message
-            flash("Not able to delete the post!")
-            posts =  Posts.query.order_by(Posts.date_added)
-            return render_template("posts.html",
-                                posts = posts)
-    else:
-        flash("You are not authorised to delete that post!")   
-        #Grab all the posts from the database
+    try:
+        db.session.delete(post_to_delete)
+        db.session.commit()
+        #Return a message
+        flash("Post deleted successfully!")
+    
+    #Grab all the posts from the database
         posts =  Posts.query.order_by(Posts.date_posted)
         return render_template("posts.html",
-                                posts = posts)
+                               posts = posts)
+    except:
+        #Return error message
+        flash("Not able to delete the post!")
+        posts =  Posts.query.order_by(Posts.date_added)
+        return render_template("posts.html",
+                               posts = posts)
 
 @app.route('/delete/<int:id>')
 def delete(id):
@@ -223,6 +220,16 @@ def delete(id):
                                name = name,
                                all_users = all_users)
 
+# Define a form class using FlaskForm
+class NewUser(FlaskForm):
+    name = StringField("Name", validators=[DataRequired()])
+    username = StringField("Username", validators=[DataRequired()])
+    email = StringField("Email", validators=[DataRequired()])
+    residence = StringField("Residence")
+    password_hash = PasswordField("Password", validators=[DataRequired(), EqualTo('password_hash2', message='Passwords should match!')])
+    password_hash2 = PasswordField("Confirm Password", validators=[DataRequired()])
+    submit = SubmitField("Submit")
+
 # Update database record
 @app.route('/update/<int:id>', methods=['GET', 'POST'])
 def update(id):
@@ -232,7 +239,6 @@ def update(id):
         name_to_update.name = request.form['name']
         name_to_update.email = request.form['email']
         name_to_update.residence = request.form['residence']
-        name_to_update.about_author = request.form['about_author']
         name_to_update.username = request.form['username']
 
         try:
@@ -281,7 +287,6 @@ def add_user():
     if form.validate_on_submit():
         user = Users.query.filter_by(email=form.email.data).first()
         if user is None:
-
             # Hash the password first
             hashed_pw = generate_password_hash(form.password_hash.data, method='pbkdf2:sha256')
             user = Users(username=form.username.data, name=form.name.data, email=form.email.data, residence=form.residence.data, password_hash=hashed_pw)
@@ -329,6 +334,12 @@ def internal_server_error(e):
     return render_template("500.html"), 500
 
 
+# PasswordForm
+class PasswordForm(FlaskForm):
+    email = StringField("Email")
+    password_hash = PasswordField("Password", validators=[DataRequired()])
+    submit = SubmitField("Submit")
+
 # Password test page
 @app.route('/test_pw', methods=['GET', 'POST'])
 def test_pw():
@@ -374,47 +385,3 @@ def name():
                            name = name,
                            email = email,
                            form = form)
-
-
-
-# create model
-class Users(db.Model, UserMixin):
-    id = db.Column(db.Integer, primary_key = True)
-    username = db.Column(db.String(20), nullable=False, unique=True)
-    name = db.Column(db.String(200), nullable= False)
-    email = db.Column(db.String(120), nullable = False, unique = True)
-    residence = db.Column(db.String(40))
-    about_author = db.Column(db.Text(400), nullable=True)
-    date_added = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    profile_pic = db.Column(db.String(150), nullable=True)
-    # Password
-    password_hash = db.Column(db.String(128))
-    # A user can have many posts
-    posts = db.relationship('Posts', backref='author')
-
-    @property
-    def password(self):
-        raise AttributeError('Password is not readable')
-    
-    @password.setter
-    def password(self, password):
-        self.password_hash = generate_password_hash(password)
-
-    def verify_password(self, password):
-        return check_password_hash(self.password_hash, password)
-
-    # Create a string
-    def __repr__(self):
-        return '<Name %r>' % self.name
-    
-
-# Create a Blog post model
-class Posts(db.Model):
-    id=db.Column(db.Integer, primary_key=True)
-    title=db.Column(db.String(255))
-    content=db.Column(db.Text)
-    #author=db.Column(db.String(60))
-    date_posted=db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    slug=db.Column(db.String(255))
-    # Foreign key
-    author_id = db.Column(db.Integer, db.ForeignKey('users.id'))

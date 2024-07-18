@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+{% for message in get_flashed_messages() %}
+<div class="alert alert-primary alert-dismissible fade show" role="alert">
+        {{ message }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endfor %}
+
+    {% if id == current_user.id %}
+
+        <h2>Update User...</h2>
+        <br>
+        <div class="shadow p-3 mb-5 bg-body-tertiary rounded">
+            <form action="/update/{{ name_to_update.id }}" method="POST" enctype="multipart/form-data">
+                {{ form.hidden_tag() }}
+
+                {{ form.name.label(class="form-label") }}
+                {{ form.name(class="form-control", value=name_to_update.name) }}
+                <br>
+                {{ form.username.label(class="form-label") }}
+                {{ form.username(class="form-control", value=name_to_update.username) }}
+                <br>
+                {{ form.email.label(class="form-label") }}
+                {{ form.email(class="form-control", value=name_to_update.email) }}
+                <br>
+                {{ form.residence.label(class="form-label") }}
+                {{ form.residence(class="form-control", value=name_to_update.residence) }}
+                <br>
+                {{ form.profile_pic.label(class="form-label") }}
+                {{ form.profile_pic(class="form-control") }}
+                <br>
+                {% if name_to_update.profile_pic %}
+                <div class="form-group">
+                    <img src="{{ url_for('static', filename='images/default.png') }}">
+                </div>
+                <br>
+                {% endif %}
+                <textarea name="about_author" class="form-control">{{ name_to_update.about_author }}</textarea><br>
+                {{ form.submit(class="btn btn-secondary", value="Update") }}
+
+                <a href="{{ url_for('delete', id=id) }}" class="btn btn-danger btn-sm">Delete</a>
+            </form>
+        </div>
+        <br><br>
+
+    {% else %}
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    Access Denied!
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+
+            <h5>You are not authorised to access this user profile</h5>
+                
+    {% endif %}
+{% endblock %}
